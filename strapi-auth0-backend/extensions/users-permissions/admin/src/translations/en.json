@@ -77,7 +77,7 @@
   "PopUpForm.Email.success_register.options.object.placeholder": "Please confirm your email address for %APP_NAME%",
   "PopUpForm.Email.validation_email.options.message.placeholder": "<p>Please click on this link to validate your account</p>",
   "PopUpForm.Email.validation_email.options.object.placeholder": "Please confirm your email address for %APP_NAME%",
-  "users-permissions.PopUpForm.Providers.auth0.providerConfig.redirectURL": "The redirect URL to add in your Auth0 application configurations",
+  "PopUpForm.Providers.auth0.providerConfig.redirectURL": "The redirect URL to add in your Auth0 application configurations",
   "PopUpForm.Providers.callback.placeholder": "TEXT",
   "PopUpForm.Providers.discord.providerConfig.redirectURL": "The redirect URL to add in your Discord application configurations",
   "PopUpForm.Providers.enabled.description": "If disabled, users won't be able to use this provider.",
