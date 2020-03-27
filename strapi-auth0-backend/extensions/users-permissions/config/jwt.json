@@ -1,0 +1,3 @@
+{
+  "jwtSecret": "${process.env.JWT_SECRET || '26d7ae40-1743-43e5-ae38-33697bd5649e'}"
+}
