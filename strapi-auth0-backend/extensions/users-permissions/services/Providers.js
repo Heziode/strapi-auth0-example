@@ -11,6 +11,8 @@ const request = require('request');
 // Purest strategies.
 const purest = require('purest')({ request });
 const purestConfig = require('@purest/providers');
+const { getAbsoluteServerUrl } = require('strapi-utils');
+const jwt = require('jsonwebtoken');
 
 /**
  * Connect thanks to a third-party provider.
@@ -22,7 +24,7 @@ const purestConfig = require('@purest/providers');
  * @return  {*}
  */
 
-exports.connect = (provider, query) => {
+const connect = (provider, query) => {
   const access_token = query.access_token || query.code || query.oauth_token;
 
   return new Promise((resolve, reject) => {
@@ -55,18 +57,15 @@ exports.connect = (provider, query) => {
           })
           .get();
 
-        if (
-          _.isEmpty(_.find(users, { provider })) &&
-          !advanced.allow_register
-        ) {
+        const user = _.find(users, { provider });
+
+        if (_.isEmpty(user) && !advanced.allow_register) {
           return resolve([
             null,
             [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
             'Register action is actualy not available.',
           ]);
         }
-
-        const user = _.find(users, { provider });
 
         if (!_.isEmpty(user)) {
           return resolve([user, null]);
@@ -95,9 +94,7 @@ exports.connect = (provider, query) => {
           confirmed: true,
         });
 
-        const createdUser = await strapi
-          .query('user', 'users-permissions')
-          .create(params);
+        const createdUser = await strapi.query('user', 'users-permissions').create(params);
 
         return resolve([createdUser, null]);
       } catch (err) {
@@ -165,6 +162,23 @@ const getProfile = async (provider, query, callback) => {
         });
       break;
     }
+    case 'cognito': {
+      // get the id_token
+      const idToken = query.id_token;
+      // decode the jwt token
+      const tokenPayload = jwt.decode(idToken);
+      if (!tokenPayload) {
+        callback(new Error('unable to decode jwt token'));
+      } else {
+        // Combine username and discriminator because discord username is not unique
+        var username = `${tokenPayload['cognito:username']}`;
+        callback(null, {
+          username: username,
+          email: tokenPayload.email,
+        });
+      }
+      break;
+    }
     case 'facebook': {
       const facebook = purest({
         provider: 'facebook',
@@ -217,53 +231,41 @@ const getProfile = async (provider, query, callback) => {
         },
       });
 
-      request.post(
-        {
-          url: 'https://github.com/login/oauth/access_token',
-          form: {
-            client_id: grant.github.key,
-            client_secret: grant.github.secret,
-            code: access_token,
-          },
-        },
-        (err, res, body) => {
+      github
+        .query()
+        .get('user')
+        .auth(access_token)
+        .request((err, res, userbody) => {
+          if (err) {
+            return callback(err);
+          }
+
+          // This is the public email on the github profile
+          if (userbody.email) {
+            return callback(null, {
+              username: userbody.login,
+              email: userbody.email,
+            });
+          }
+
+          // Get the email with Github's user/emails API
           github
             .query()
-            .get('user')
-            .auth(body.split('&')[0].split('=')[1])
-            .request((err, res, userbody) => {
+            .get('user/emails')
+            .auth(access_token)
+            .request((err, res, emailsbody) => {
               if (err) {
                 return callback(err);
               }
 
-              // This is the public email on the github profile
-              if (userbody.email) {
-                return callback(null, {
-                  username: userbody.login,
-                  email: userbody.email,
-                });
-              }
-
-              // Get the email with Github's user/emails API
-              github
-                .query()
-                .get('user/emails')
-                .auth(body.split('&')[0].split('=')[1])
-                .request((err, res, emailsbody) => {
-                  if (err) {
-                    return callback(err);
-                  }
-
-                  return callback(null, {
-                    username: userbody.login,
-                    email: Array.isArray(emailsbody)
-                      ? emailsbody.find(email => email.primary === true).email
-                      : null,
-                  });
-                });
+              return callback(null, {
+                username: userbody.login,
+                email: Array.isArray(emailsbody)
+                  ? emailsbody.find(email => email.primary === true).email
+                  : null,
+              });
             });
-        }
-      );
+        });
       break;
     }
     case 'microsoft': {
@@ -345,8 +347,7 @@ const getProfile = async (provider, query, callback) => {
 
       vk.query()
         .get('users.get')
-        .auth(access_token)
-        .qs({ id: query.raw.user_id, v: '5.013' })
+        .qs({ access_token, id: query.raw.user_id, v: '5.122' })
         .request((err, res, body) => {
           if (err) {
             callback(err);
@@ -357,6 +358,113 @@ const getProfile = async (provider, query, callback) => {
             });
           }
         });
+      break;
+    }
+    case 'twitch': {
+      const twitch = purest({
+        provider: 'twitch',
+        config: {
+          twitch: {
+            'https://api.twitch.tv': {
+              __domain: {
+                auth: {
+                  headers: {
+                    Authorization: 'Bearer [0]',
+                    'Client-ID': '[1]',
+                  },
+                },
+              },
+              'helix/{endpoint}': {
+                __path: {
+                  alias: '__default',
+                },
+              },
+              'oauth2/{endpoint}': {
+                __path: {
+                  alias: 'oauth',
+                },
+              },
+            },
+          },
+        },
+      });
+
+      twitch
+        .get('users')
+        .auth(access_token, grant.twitch.key)
+        .request((err, res, body) => {
+          if (err) {
+            callback(err);
+          } else {
+            callback(null, {
+              username: body.data[0].login,
+              email: body.data[0].email,
+            });
+          }
+        });
+      break;
+    }
+    case 'linkedin': {
+      const linkedIn = purest({
+        provider: 'linkedin',
+        config: {
+          linkedin: {
+            'https://api.linkedin.com': {
+              __domain: {
+                auth: [{ auth: { bearer: '[0]' } }],
+              },
+              '[version]/{endpoint}': {
+                __path: {
+                  alias: '__default',
+                  version: 'v2',
+                },
+              },
+            },
+          },
+        },
+      });
+      try {
+        const getDetailsRequest = () => {
+          return new Promise((resolve, reject) => {
+            linkedIn
+              .query()
+              .get('me')
+              .auth(access_token)
+              .request((err, res, body) => {
+                if (err) {
+                  return reject(err);
+                }
+                resolve(body);
+              });
+          });
+        };
+
+        const getEmailRequest = () => {
+          return new Promise((resolve, reject) => {
+            linkedIn
+              .query()
+              .get('emailAddress?q=members&projection=(elements*(handle~))')
+              .auth(access_token)
+              .request((err, res, body) => {
+                if (err) {
+                  return reject(err);
+                }
+                resolve(body);
+              });
+          });
+        };
+
+        const { localizedFirstName } = await getDetailsRequest();
+        const { elements } = await getEmailRequest();
+        const email = elements[0]['handle~'];
+
+        callback(null, {
+          username: localizedFirstName,
+          email: email.emailAddress,
+        });
+      } catch (err) {
+        callback(err);
+      }
       break;
     }
     case "auth0": {
@@ -401,4 +509,12 @@ const getProfile = async (provider, query, callback) => {
       });
       break;
   }
+};
+
+const buildRedirectUri = (provider = '') =>
+  `${getAbsoluteServerUrl(strapi.config)}/connect/${provider}/callback`;
+
+module.exports = {
+  connect,
+  buildRedirectUri,
 };

@@ -18,7 +18,7 @@ At the bottom of settings, show "Advanced Settings" and go to the Grant Types. E
 
 ## API Setup
 
-Visit the User Permissions provider settings page: http://localhost:1337/admin/plugins/users-permissions/providers
+Visit the User Permissions provider settings page: http://localhost:1337/admin/settings/users-permissions/providers
 Click on the **Auth0** provider
 
 Then fill the informations:
