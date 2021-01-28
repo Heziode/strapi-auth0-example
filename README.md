@@ -1,5 +1,7 @@
 # React Authentication Flow
 
+> Archived because Auth0 is in Strapi from v3.4.5: https://forum.strapi.io/t/new-release-strapi-v3-4-5/2446
+
 Basic React application that shows how the authenticate users using `JSON Web Tokens`.
 
 This example add Auth0 authentication with Strapi. For more information, please take a look at [`./strapi-auth0-backend/extensions/users-permissions`](./strapi-auth0-backend/extensions/users-permissions).
